@@ -1,0 +1,95 @@
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - main: ./main.go
+    id: "split-debug"
+    binary: split-debug
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+      - -v
+    ldflags:
+      # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}} -X main.builtBy=goreleaser`.
+      - -X main.version={{.Version}} -X main.commit={{.Commit}}
+archives:
+  - replacements:
+      darwin: Darwin
+      linux: Linux
+      windows: Windows
+      amd64: x86_64
+    format_overrides:
+      - goos: windows
+        format: zip
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ incpatch .Tag }}-next"
+source:
+  enabled: true
+release:
+  prerelease: auto
+  # Defaults to empty.
+  footer: |
+    ## Docker images
+
+    `docker pull ghcr.io/kakkoyun/split-debug:{{ .Tag }}`
+
+    ## Thanks!
+
+    Follow me on [Twitter](https://twitter.com/kkakkoyun);
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+dockers:
+  # https://goreleaser.com/customization/docker/
+  - id: amd64
+    image_templates:
+      - kakkoyun/{{ .ProjectName }}:{{ .Version }}-amd64
+      - kakkoyun/{{ .ProjectName }}:latest-amd64
+    dockerfile: Dockerfile.release
+    extra_files:
+      - split-debug.yaml
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.title={{ .ProjectName }}
+      - --label=org.opencontainers.image.description={{ .ProjectName }}
+      - --label=org.opencontainers.image.url=https://github.com/kakkoyun/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/kakkoyun/{{ .ProjectName }}
+      - --label=org.opencontainers.image.created={{.CommitDate}}
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.licenses=Apache-2.0
+
+  - id: arm64
+    image_templates:
+      - kakkoyun/{{ .ProjectName }}:{{ .Version }}-arm64v8
+      - kakkoyun/{{ .ProjectName }}:latest-arm64v8
+    goarch: arm64
+    dockerfile: Dockerfile.release
+    extra_files:
+      - split-debug.yaml
+    build_flag_templates:
+      - --platform=linux/arm64/v8
+      - --label=org.opencontainers.image.title={{ .ProjectName }}
+      - --label=org.opencontainers.image.description={{ .ProjectName }}
+      - --label=org.opencontainers.image.url=https://github.com/kakkoyun/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/kakkoyun/{{ .ProjectName }}
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.created={{.CommitDate}}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.licenses=Apache-2.0

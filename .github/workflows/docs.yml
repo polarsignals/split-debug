@@ -1,0 +1,27 @@
+name: Documents
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: ^1.18
+
+      - name: Build
+        run: make build
+
+      - name: Docs check
+        run: |
+          make README.md
+          git diff --exit-code
