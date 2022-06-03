@@ -36,11 +36,6 @@ func TestWriter_Write(t *testing.T) {
 			w, err := New(output, &elfFile.FileHeader)
 			require.NoError(t, err)
 
-			// w := &Writer{
-			// 	Progs:    tt.fields.Progs,
-			// 	Sections: tt.fields.Sections,
-			// }
-
 			require.NoError(t, w.Write())
 			require.NoError(t, w.Close())
 			// TODO(kakkoyun): Compare: readelf -h outputs.

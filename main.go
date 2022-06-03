@@ -47,14 +47,17 @@ func run(path string) error {
 		return fmt.Errorf("failed to initialize writer: %w", err)
 	}
 
-	for _, p := range elfFile.Progs {
-		// TODO(kakkoyun): Remove executable code.
-		w.Progs = append(w.Progs, p)
-	}
-	for _, s := range elfFile.Sections {
-		// TODO(kakkoyun): Filter debug information, strtab, etc.
-		w.Sections = append(w.Sections, s)
-	}
+	// TODO(kakkoyun): Remove executable code.
+	// for _, p := range elfFile.Progs {
+	// 	w.Progs = append(w.Progs, p)
+	// }
+	w.Progs = append(w.Progs, elfFile.Progs...)
+
+	// TODO(kakkoyun): Filter debug information, strtab, etc.
+	// for _, s := range elfFile.Sections {
+	// 	w.Sections = append(w.Sections, s)
+	// }
+	w.Sections = append(w.Sections, elfFile.Sections...)
 
 	// TODO(kakkoyun): Add example notes.
 
