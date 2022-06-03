@@ -20,6 +20,7 @@ dev/setup:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	go install mvdan.cc/gofumpt@latest
 	go install github.com/campoy/embedmd@latest
+	go install github.com/goreleaser/goreleaser@latest
 
 .PHONY: deps
 deps:

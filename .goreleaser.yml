@@ -62,8 +62,6 @@ dockers:
       - kakkoyun/{{ .ProjectName }}:{{ .Version }}-amd64
       - kakkoyun/{{ .ProjectName }}:latest-amd64
     dockerfile: Dockerfile.release
-    extra_files:
-      - split-debug.yaml
     build_flag_templates:
       - --platform=linux/amd64
       - --label=org.opencontainers.image.title={{ .ProjectName }}
@@ -81,8 +79,6 @@ dockers:
       - kakkoyun/{{ .ProjectName }}:latest-arm64v8
     goarch: arm64
     dockerfile: Dockerfile.release
-    extra_files:
-      - split-debug.yaml
     build_flag_templates:
       - --platform=linux/arm64/v8
       - --label=org.opencontainers.image.title={{ .ProjectName }}
