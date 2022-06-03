@@ -41,7 +41,7 @@ test: build
 	go test -v $(shell go list ./...)
 
 .PHONY: container
-container: $(OUT_BIN)
+container:
 	docker build -t $(CONTAINER_IMAGE) .
 
 .PHONY: push-container
