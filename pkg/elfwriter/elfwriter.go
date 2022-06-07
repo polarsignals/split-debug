@@ -6,7 +6,9 @@
 //
 // This package does not provide completeness guarantees, only features needed to write core files are
 // implemented, notably missing:
-// - ?
+// - Consistency and soundness of relocations (type: SHT_RELA)
+// - Consistency of linked sections when target removed (sh_link)
+// - Consistency and existence of overlapping segments when a section removed (offset, range check)
 package elfwriter
 
 import (
@@ -15,17 +17,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"golang.org/x/sys/unix"
 )
 
 // TODO(kakkoyun): Fix entry point. Copy?
 // TODO(kakkoyun): Make sure everything works when an overlapping chunk removed.
-// TODO(kakkoyun): Sections to segment mapping.
+// TODO(kakkoyun): Check if sections to segment mapping created properly.
 // TODO(kakkoyun): Handle compressed sections. Keep compressed section compressed.
-// fr := io.NewSectionReader(s.sr, s.compressionOffset, int64(s.FileSize)-s.compressionOffset)
-// zlib.NewReader(fr)
-// zlib.NewWriter
+//  - fr := io.NewSectionReader(s.sr, s.compressionOffset, int64(s.FileSize)-s.compressionOffset)
+//  - zlib.NewReader(fr)
+//  - zlib.NewWriter
 
 // TODO(kakkoyun): Make sure relocations work. Do we actually need to provide guarantees?
+
+const sectionHeaderStrTable = ".shstrtab"
 
 // WriteCloserSeeker is the union of io.Writer, io.Closer and io.Seeker.
 type WriteCloserSeeker interface {
@@ -39,12 +45,12 @@ type Writer struct {
 	w         WriteCloserSeeker
 	byteOrder binary.ByteOrder
 	class     elf.Class
-	// TODO(kakkoyun): Data?
 
 	Err error
 
 	Progs    []*elf.Prog
 	Sections []*elf.Section
+	shStrIdx map[string]int
 
 	seekProgHeader       int64 // phoff
 	seekProgNum          int64 // phnum
@@ -79,6 +85,7 @@ func New(w WriteCloserSeeker, fhdr *elf.FileHeader) (*Writer, error) {
 		w:         w,
 		byteOrder: fhdr.ByteOrder,
 		class:     fhdr.Class,
+		shStrIdx:  make(map[string]int),
 	}
 
 	// TODO(kakkoyun): Check if this is still unsupported.
@@ -190,7 +197,7 @@ func (w *Writer) WriteNotes(notes []Note) *elf.ProgHeader {
 		w.u64(uint64(len(note.Data)))
 		w.u64(uint64(note.Type))
 		w.write([]byte(note.Name))
-		w.align(4) // TODO(kakkoyun): possible change the align value!
+		w.align(4) // TODO(kakkoyun): 4 or 8. Possibly needs change! Check the value in the file header?
 		w.write(note.Data)
 	}
 
@@ -257,7 +264,7 @@ func (w *Writer) writeFileHeader(fhdr *elf.FileHeader) error {
 		w.u16(uint16(fhdr.Type))    // e_type
 		w.u16(uint16(fhdr.Machine)) // e_machine
 		w.u32(uint32(fhdr.Version)) // e_version
-		w.u32(0)                    // e_entry // TODO(kakkoyun): !
+		w.u32(0)                    // e_entry // TODO(kakkoyun): Shall we clone from input? Any consistency checks?
 		w.seekProgHeader = w.here()
 		w.u32(0) // e_phoff
 		w.seekSectionHeader = w.here()
@@ -292,7 +299,7 @@ func (w *Writer) writeFileHeader(fhdr *elf.FileHeader) error {
 		w.u16(uint16(fhdr.Type))    // e_type
 		w.u16(uint16(fhdr.Machine)) // e_machine
 		w.u32(uint32(fhdr.Version)) // e_version
-		w.u64(0)                    // e_entry // TODO(kakkoyun): !
+		w.u64(0)                    // e_entry // TODO(kakkoyun): Shall we clone from input? Any consistency checks?
 		w.seekProgHeader = w.here()
 		w.u64(0) // e_phoff
 		w.seekSectionHeader = w.here()
@@ -328,7 +335,7 @@ func (w *Writer) writeSegments() {
 	w.u64(uint64(len(w.Progs))) // e_phnum
 	w.seek(0, io.SeekEnd)
 
-	write32 := func(prog *elf.Prog) {
+	writePH32 := func(prog *elf.Prog) {
 		// ELF32 Program header.
 		// type Prog32 struct {
 		// 	Type   uint32 /* Entry type. */
@@ -350,7 +357,7 @@ func (w *Writer) writeSegments() {
 		w.u32(uint32(prog.Align))
 	}
 
-	write64 := func(prog *elf.Prog) {
+	writePH64 := func(prog *elf.Prog) {
 		// ELF64 Program header.
 		// type Prog64 struct {
 		// 	Type   uint32 /* Entry type. */
@@ -372,73 +379,125 @@ func (w *Writer) writeSegments() {
 		w.u64(prog.Align)
 	}
 
-	var write func(prog *elf.Prog)
+	var writeProgramHeader func(prog *elf.Prog)
 	switch w.class {
 	case elf.ELFCLASS32:
-		write = write32
+		writeProgramHeader = writePH32
 	case elf.ELFCLASS64:
-		write = write64
+		writeProgramHeader = writePH64
 	}
 
 	for _, prog := range w.Progs {
 		// Write program header to program header table.
-		write(prog)
+		writeProgramHeader(prog)
 	}
 
 	// TODO(kakkoyun): Add program/segment data.
-	// iohelper.NewSectionWriter(w.w, int64(prog.Off), int64(prog.Filesz))
-	// p.sr = io.NewSectionReader(r, int64(p.Off), int64(p.Filesz))
-	// p.ReaderAt = p.sr
-	// f.Progs[i] = p
-
-	// TODO(kakkoyun): Data?
-	// Write the segment
-	//        _, err = w.Seek(int64(prog.Offset), io.SeekStart)
-	//        if err != nil {
-	//            return err
-	//        }
-	//        _, err = w.Write(prog.Data)
-	//        if err != nil {
-	//            return err
-	//        }
-	//
+	// for _, prog := range w.Progs {
+	// 	// TODO(kakkoyun): Calculate using phentsize and update program header table.
+	// 	prog.Off = uint64(w.here())
+	// 	w.writeFrom(prog.Open())
+	// 	// TODO(kakkoyun): Calculate using phentsize and update program header table.
+	// 	prog.Filesz = uint64(w.here()) - prog.Off
+	// 	// Unless the section is not compressed, the Memsz and Filesz is the same.
+	// 	prog.Memsz = prog.Filesz
+	// }
 }
 
 // writeSections writes the sections at the current location
 // and patches the file header accordingly.
 func (w *Writer) writeSections() {
+	// http://www.sco.com/developers/gabi/2003-12-17/ch4.sheader.html
 	// 			   +-------------------+
-	// 			   | ELF header        |---+
-	// +---------> +-------------------+   | e_shoff
-	// |           |                   |<--+
-	// | Section   | Section header 0  |
-	// |           |                   |---+ sh_offset
-	// | Header    +-------------------+   |
-	// |           | Section header 1  |---|--+ sh_offset
-	// | Table     +-------------------+   |  |
-	// |           | Section header 2  |---|--|--+
-	// +---------> +-------------------+   |  |  |
-	// 			   | Section 0         |<--+  |  |
-	// 			   +-------------------+      |  | sh_offset
-	// 			   | Section 1         |<-----+  |
-	// 			   +-------------------+         |
-	// 			   | Section 2         |<--------+
-	// 			   +-------------------+
-	shoff := w.here()
-	shnum := len(w.Sections)
+	// 			   | ELF header        |---+  e_shoff
+	// 			   +-------------------+   |
+	// 			   | Section 0         |<-----+
+	// 			   +-------------------+   |  | sh_offset
+	// 			   | Section 1         |<--|-----+
+	// 			   +-------------------+   |  |  |
+	// 			   | Section 2         |<--|--|--|--+
+	// +---------> +-------------------+   |  |  |  |
+	// |           |                   |<--+  |  |  |
+	// | Section   | Section header 0  |      |  |  |
+	// |           |                   |<-----+  |  |
+	// | Header    +-------------------+         |  |
+	// |           | Section header 1  |<--------+  |
+	// | Table     +-------------------+            |
+	// |           | Section header 2  |------------+ sh_offset
+	// +---------> +-------------------+
 
-	// Patch file header.
+	// Shallow copy the section for further editing.
+	copy := func(s *elf.Section) *elf.Section {
+		clone := new(elf.Section)
+		*clone = *s
+		return clone
+	}
+
+	// sections that will end up in the output.
+	var stw []*elf.Section
+	for i, sec := range w.Sections {
+		if i == 0 {
+			if sec.Type == elf.SHT_NULL {
+				stw = append(stw, copy(sec))
+			} else {
+				s := new(elf.Section)
+				s.Type = elf.SHT_NULL
+				stw = append(stw, s)
+				stw = append(stw, copy(sec))
+			}
+		}
+		if sec.Type == elf.SHT_STRTAB && sec.Name == sectionHeaderStrTable {
+			// We are going to rebuild afterwards.
+			continue
+		}
+	}
+
+	// Build section header string table.
+	shstrtab := new(elf.Section)
+	shstrtab.Name = sectionHeaderStrTable
+	shstrtab.Type = elf.SHT_STRTAB
+	shstrtab.Addralign = 1
+	stw = append(stw, shstrtab)
+	shnum := len(stw)
+
+	names := make([]string, shnum)
+	for i, sec := range stw {
+		if sec.Name != "" {
+			names[i] = sec.Name
+		}
+	}
+
+	// Start writing actual data for sections.
+	shstrtab.Offset = uint64(w.here())
+	w.strtab(names)
+	shstrtab.FileSize = uint64(w.here()) - shstrtab.Offset
+	// Unless the section is not compressed, the Size and FileSize is the same.
+	shstrtab.Size = shstrtab.FileSize
+
+	for _, sec := range stw {
+		sec.Offset = uint64(w.here())
+		// TODO(kakkoyun): Handle compression.
+		w.writeFrom(sec.Open())
+		sec.FileSize = uint64(w.here()) - sec.Offset
+		// Unless the section is not compressed, the Size and FileSize is the same.
+		sec.Size = sec.FileSize
+	}
+
+	// Start writing the section header table.
+	shoff := w.here()
+
+	// First, patch file header.
 	w.seek(w.seekSectionHeader, io.SeekStart)
 	w.u64(uint64(shoff))
 	w.shoff = shoff
 	w.seek(w.seekSectionNum, io.SeekStart)
-	w.u64(uint64(shnum) + 1) // e_shnum
-	w.shnum = int64(shnum + 1)
+	w.u64(uint64(shnum)) // e_shnum
+	w.shnum = int64(shnum)
 	w.seek(w.seekSectionStringIdx, io.SeekStart)
-	w.u64(uint64(shnum)) // The last section is string names.
+	w.u64(uint64(shnum - 1)) // The last section is string names.
 	w.seek(0, io.SeekEnd)
 
-	write32 := func(i int, sec *elf.Section) {
+	writeSH32 := func(shstrndx int, sec *elf.Section) {
 		// ELF32 Section header.
 		// type Section32 struct {
 		// 	Name      uint32 /* Section name (index into the section header string table). */
@@ -452,7 +511,7 @@ func (w *Writer) writeSections() {
 		// 	Addralign uint32 /* Alignment in bytes. */
 		// 	Entsize   uint32 /* Size of each entry in section. */
 		// }
-		w.u32(uint32(i))
+		w.u32(uint32(shstrndx))
 		w.u32(uint32(sec.Type))
 		w.u32(uint32(sec.Flags))
 		w.u32(uint32(sec.Addr))
@@ -464,7 +523,7 @@ func (w *Writer) writeSections() {
 		w.u32(uint32(sec.Entsize))
 	}
 
-	write64 := func(i int, sec *elf.Section) {
+	writeSH64 := func(shstrndx int, sec *elf.Section) {
 		// ELF64 Section header.
 		// type Section64 struct {
 		// 	Name      uint32 /* Section name (index into the section header string table). */
@@ -478,7 +537,7 @@ func (w *Writer) writeSections() {
 		// 	Addralign uint64 /* Alignment in bytes. */
 		// 	Entsize   uint64 /* Size of each entry in section. */
 		// }
-		w.u32(uint32(i))
+		w.u32(uint32(shstrndx))
 		w.u32(uint32(sec.Type))
 		w.u32(uint32(sec.Flags))
 		w.u64(sec.Addr)
@@ -490,36 +549,23 @@ func (w *Writer) writeSections() {
 		w.u64(sec.Entsize)
 	}
 
-	var write func(i int, sec *elf.Section)
+	// shstrndx index of the entry in the section header string table.
+	// 0 reserved for null string.
+	var writeSectionHeader func(shstrndx int, sec *elf.Section)
 	switch w.class {
 	case elf.ELFCLASS32:
-		write = write32
+		writeSectionHeader = writeSH32
 	case elf.ELFCLASS64:
-		write = write64
+		writeSectionHeader = writeSH64
 	}
 
-	// TODO(kakkoyun): In index 0, SHT_NULL is mandatory.
-	names := make([]string, shnum)
-	for i, sec := range w.Sections {
-		names[i] = sec.Name
-		write(i, sec)
+	for _, sec := range stw {
+		if sec.Name != "" {
+			writeSectionHeader(w.shStrIdx[sec.Name], sec)
+		} else {
+			writeSectionHeader(0, sec)
+		}
 	}
-	// Patch section name string table
-	// Type: SHT_STRTAB
-	// TODO(kakkoyun): Add a section header. But how?
-	for _, nm := range names {
-		w.write([]byte(nm)) // TODO(kakkoyun): String end/separator?
-	}
-
-	// TODO(kakkoyun): Add section data.
-	// _, err = w.Seek(int64(sh.Offset), io.SeekStart)
-	// if err != nil {
-	//	return err
-	// }
-	// _, err = io.Copy(w, section.Open())
-	// if err != nil {
-	//	return err
-	// }
 }
 
 // Close closes the WriteCloseSeeker.
@@ -583,5 +629,43 @@ func (w *Writer) u64(n uint64) {
 	err := binary.Write(w.w, w.byteOrder, n)
 	if err != nil && w.Err == nil {
 		w.Err = err
+	}
+}
+
+// strtab writes given strings in string table format.
+func (w *Writer) strtab(strs []string) {
+	// http://www.sco.com/developers/gabi/2003-12-17/ch4.strtab.html
+	w.write([]byte{0})
+	for i, s := range strs {
+		if s != "" {
+			data, err := unix.ByteSliceFromString(s)
+			if err != nil && w.Err == nil {
+				w.Err = err
+				break
+			}
+			w.shStrIdx[s] = i
+			w.write(data)
+		}
+	}
+}
+
+func (w *Writer) writeFrom(r io.Reader) {
+	pr, pw := io.Pipe()
+
+	// write in writer end of pipe.
+	var wErr error
+	go func() {
+		defer pw.Close()
+		_, wErr = io.Copy(pw, r)
+	}()
+
+	// read from reader end of pipe.
+	defer pr.Close()
+	_, rErr := io.Copy(w.w, pr)
+	if wErr != nil && w.Err == nil {
+		w.Err = wErr
+	}
+	if rErr != nil && w.Err == nil {
+		w.Err = rErr
 	}
 }
