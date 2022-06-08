@@ -12,6 +12,11 @@ $(OUT_DIR):
 .PHONY: build
 build: $(OUT_BIN)
 
+.PHONY: clean
+clean:
+	-rm -rf dist/*
+	-rm split-debug-*
+
 $(OUT_BIN): deps go.sum main.go pkg/**/*
 	CGO_ENABLED=0 go build -trimpath -ldflags=$(LDFLAGS) -o $@ main.go
 
@@ -35,7 +40,6 @@ lint: dev/setup
 format: dev/setup
 	gofumpt -l -w .
 	go fmt $(shell go list ./...)
-
 
 .PHONY: test
 test: build

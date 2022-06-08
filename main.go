@@ -1,10 +1,12 @@
 package main
 
 import (
+	"debug/elf"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kakkoyun/split-debug/pkg/elfutils"
 	"github.com/kakkoyun/split-debug/pkg/elfwriter"
@@ -30,6 +32,20 @@ func main() {
 	level.Info(l).Log("msg", "done!")
 }
 
+var isDwarf = func(s *elf.Section) bool {
+	return strings.HasPrefix(s.Name, ".debug_") ||
+		strings.HasPrefix(s.Name, ".zdebug_") ||
+		strings.HasPrefix(s.Name, "__debug_") // macos
+}
+
+var isSymbolTable = func(s *elf.Section) bool {
+	return s.Name == ".symtab" || s.Name == ".dynsymtab"
+}
+
+var isGoSymbolTable = func(s *elf.Section) bool {
+	return s.Name == ".gosymtab" || s.Name == ".gopclntab"
+}
+
 func run(path string) error {
 	elfFile, err := elfutils.Open(path)
 	if err != nil {
@@ -51,15 +67,14 @@ func run(path string) error {
 	// for _, p := range elfFile.Progs {
 	// 	w.Progs = append(w.Progs, p)
 	// }
-	w.Progs = append(w.Progs, elfFile.Progs...)
+	// w.Progs = append(w.Progs, elfFile.Progs...)
 
-	// TODO(kakkoyun): Filter debug information, strtab, etc.
 	// for _, s := range elfFile.Sections {
-	// 	w.Sections = append(w.Sections, s)
+	// 	if isDwarf(s) || isSymbolTable(s) || isGoSymbolTable(s) {
+	// 		w.Sections = append(w.Sections, s)
+	// 	}
 	// }
 	w.Sections = append(w.Sections, elfFile.Sections...)
-
-	// TODO(kakkoyun): Add example notes.
 
 	if err := w.Write(); err != nil {
 		return fmt.Errorf("failed to write: %w", err)
