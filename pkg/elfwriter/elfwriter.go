@@ -22,16 +22,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TODO(kakkoyun): Fix entry point. Copy?
-// TODO(kakkoyun): Make sure everything works when an overlapping chunk removed.
 // TODO(kakkoyun): Check if sections to segment mapping created properly.
 // TODO(kakkoyun): Handle compressed sections. Keep compressed section compressed.
 //  - fr := io.NewSectionReader(s.sr, s.compressionOffset, int64(s.FileSize)-s.compressionOffset)
 //  - zlib.NewReader(fr)
 //  - zlib.NewWriter
-
-// TODO(kakkoyun): Make sure relocations work. Do we actually need to provide guarantees?
-
 const sectionHeaderStrTable = ".shstrtab"
 
 // WriteCloserSeeker is the union of io.Writer, io.Closer and io.Seeker.

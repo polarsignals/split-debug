@@ -9,6 +9,12 @@
 
 A native Golang tool to extract DWARF and Symbol information for ELF Object files
 
+## TODO
+
+* [] Ensure consistency of linked sections when target removed (sh_link)
+* [] Ensure consistency and existence of overlapping segments when a section removed (offset, range check)
+* [] Ensure consistency and soundness of relocations (type: SHT_RELA)
+* [] Ensure soundness of entry point (if the output ELF file is still executable) 
 
 ## Configuration
 
