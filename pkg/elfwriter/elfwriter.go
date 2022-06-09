@@ -7,7 +7,7 @@
 // This package does not provide completeness guarantees, only features needed to write core files are
 // implemented, notably missing:
 // - Consistency and soundness of relocations
-// - Consistency of linked sections when target removed (sh_link)
+// - Consistency and preservation of linked sections (when target removed (sh_link)) - partially supported
 // - Consistency and existence of overlapping segments when a section removed (offset, range check)
 package elfwriter
 
@@ -23,8 +23,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TODO(kakkoyun): Check if sections to segment mapping created properly.
 const sectionHeaderStrTable = ".shstrtab"
+
+// http://www.sco.com/developers/gabi/2003-12-17/ch4.sheader.html#special_sections
+// - Figure 4-12
+// The list is incomplete list.
+var specialSectionLinks = map[string]string{
+	// Source - Target
+	".symtab": ".strtab",
+}
 
 // WriteCloserSeeker is the union of io.Writer, io.Closer and io.Seeker.
 type WriteCloserSeeker interface {
@@ -52,7 +59,7 @@ type Writer struct {
 
 	// For validation.
 	ehsize, phentsize, shentsize uint16
-	shnum, shoff, shstrndx       int64
+	shnum, shoff, shstrndx       int
 
 	shStrIdx map[string]int
 
@@ -447,27 +454,39 @@ func (w *Writer) writeSections() {
 	shstrtab.Type = elf.SHT_STRTAB
 	shstrtab.Addralign = 1
 
-	for i, sec := range w.Sections {
+	sectionNameIdx := make(map[string]int)
+	i := 0
+	for _, sec := range w.Sections {
 		if i == 0 {
 			if sec.Type == elf.SHT_NULL {
 				stw = append(stw, copySection(sec))
+				i++
 				continue
 			}
 			s := new(elf.Section)
 			s.Type = elf.SHT_NULL
 			stw = append(stw, s)
+			i++
 		}
 		if sec.Type == elf.SHT_STRTAB && sec.Name == sectionHeaderStrTable {
 			// Add new shstrtab, preserve order.
 			stw = append(stw, shstrtab)
-			w.shstrndx = int64(len(stw) - 1)
+			w.shstrndx = i
+			sectionNameIdx[sec.Name] = i
+			i++
 			continue
 		}
 		stw = append(stw, copySection(sec))
+		sectionNameIdx[sec.Name] = i
+		i++
+	}
+	if w.shstrndx == 0 {
+		stw = append(stw, shstrtab)
+		w.shstrndx = len(stw) - 1
 	}
 
 	shnum := len(stw)
-	w.shnum = int64(shnum)
+	w.shnum = shnum
 
 	names := make([]string, shnum)
 	for i, sec := range stw {
@@ -480,7 +499,7 @@ func (w *Writer) writeSections() {
 	for i, sec := range stw {
 		sec.Offset = uint64(w.here())
 		// The section header string section is reserved for section header string table.
-		if i == int(w.shstrndx) {
+		if i == w.shstrndx {
 			w.writeStrtab(names)
 		} else {
 			if sec.Type == elf.SHT_NULL {
@@ -501,7 +520,7 @@ func (w *Writer) writeSections() {
 
 	// Start writing the section header table.
 	shoff := w.here()
-	w.shoff = shoff
+	w.shoff = int(shoff)
 	// First, patch file header.
 	w.seek(w.seekSectionHeader, io.SeekStart)
 	w.u64(uint64(shoff))
@@ -513,6 +532,18 @@ func (w *Writer) writeSections() {
 	w.u16(w.shentsize) // e_shentsize
 	w.seek(0, io.SeekEnd)
 
+	writeLink := func(sec *elf.Section) {
+		if sec.Link > 0 {
+			target, ok := specialSectionLinks[sec.Name]
+			if ok {
+				w.u32(uint32(sectionNameIdx[target]))
+			} else {
+				w.u32(uint32(0))
+			}
+		} else {
+			w.u32(uint32(0))
+		}
+	}
 	writeSH32 := func(shstrndx int, sec *elf.Section) {
 		// ELF32 Section header.
 		// type Section32 struct {
@@ -533,7 +564,7 @@ func (w *Writer) writeSections() {
 		w.u32(uint32(sec.Addr))
 		w.u32(uint32(sec.Offset))
 		w.u32(uint32(sec.Size))
-		w.u32(sec.Link)
+		writeLink(sec)
 		w.u32(sec.Info)
 		w.u32(uint32(sec.Addralign))
 		w.u32(uint32(sec.Entsize))
@@ -559,7 +590,7 @@ func (w *Writer) writeSections() {
 		w.u64(sec.Addr)
 		w.u64(sec.Offset)
 		w.u64(sec.Size)
-		w.u32(sec.Link)
+		writeLink(sec)
 		w.u32(sec.Info)
 		w.u64(sec.Addralign)
 		w.u64(sec.Entsize)
@@ -654,7 +685,7 @@ func (w *Writer) writeStrtab(strs []string) {
 	w.write([]byte{0})
 	i := 1
 	for _, s := range strs {
-		if s != "" {
+		if s == "" {
 			continue
 		}
 		data, err := unix.ByteSliceFromString(s)

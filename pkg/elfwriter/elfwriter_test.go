@@ -96,7 +96,7 @@ func TestWriter_Write(t *testing.T) {
 				FileHeader: &inElf.FileHeader,
 				Sections:   secDebug,
 			},
-			expectedNumberOfSections: len(secDebug) + 1, // shstrtab
+			expectedNumberOfSections: len(secDebug) + 2, // shstrtab, SHT_NULL
 			hasDWARF:                 true,
 		},
 	}

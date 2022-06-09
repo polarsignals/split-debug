@@ -39,7 +39,7 @@ var isDwarf = func(s *elf.Section) bool {
 }
 
 var isSymbolTable = func(s *elf.Section) bool {
-	return s.Name == ".symtab" || s.Name == ".dynsymtab"
+	return s.Name == ".symtab" || s.Name == ".strtab" || s.Name == ".dynsymtab"
 }
 
 var isGoSymbolTable = func(s *elf.Section) bool {
