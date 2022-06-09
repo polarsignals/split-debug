@@ -1,4 +1,4 @@
-module github.com/kakkoyun/split-debug
+module github.com/polarsignals/split-debug
 
 go 1.18
 

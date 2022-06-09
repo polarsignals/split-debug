@@ -34,7 +34,7 @@ jobs:
       - name: Login to registry
         if: ${{ github.event_name != 'pull_request' }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login -u kakkoyun --password-stdin ghcr.io
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login -u polarsignals --password-stdin ghcr.io
 
       - name: Push and Sign container
         if: ${{ github.event_name != 'pull_request' }}

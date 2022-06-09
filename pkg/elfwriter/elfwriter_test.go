@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kakkoyun/split-debug/pkg/elfutils"
+	"github.com/polarsignals/split-debug/pkg/elfutils"
 )
 
 var isDwarf = func(s *elf.Section) bool {

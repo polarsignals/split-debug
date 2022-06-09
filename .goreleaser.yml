@@ -41,11 +41,11 @@ release:
   footer: |
     ## Docker images
 
-    `docker pull ghcr.io/kakkoyun/{{ .ProjectName }}:{{ .Tag }}`
+    `docker pull ghcr.io/polarsignals/{{ .ProjectName }}:{{ .Tag }}`
 
     ## Thanks!
 
-    Follow me on [Twitter](https://twitter.com/kkakkoyun);
+    Follow us on [Twitter](https://twitter.com/polarsignalsio);
 changelog:
   sort: asc
   use: github
@@ -59,15 +59,15 @@ dockers:
   - id: amd64
     use: buildx
     image_templates:
-      - ghcr.io/kakkoyun/{{ .ProjectName }}:{{ .Version }}-amd64
-      - ghcr.io/kakkoyun/{{ .ProjectName }}:latest-amd64
+      - ghcr.io/polarsignals/{{ .ProjectName }}:{{ .Version }}-amd64
+      - ghcr.io/polarsignals/{{ .ProjectName }}:latest-amd64
     dockerfile: Dockerfile.release
     build_flag_templates:
       - --platform=linux/amd64
       - --label=org.opencontainers.image.title={{ .ProjectName }}
       - --label=org.opencontainers.image.description={{ .ProjectName }}
-      - --label=org.opencontainers.image.url=https://github.com/kakkoyun/{{ .ProjectName }}
-      - --label=org.opencontainers.image.source=https://github.com/kakkoyun/{{ .ProjectName }}
+      - --label=org.opencontainers.image.url=https://github.com/polarsignals/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/polarsignals/{{ .ProjectName }}
       - --label=org.opencontainers.image.created={{.CommitDate}}
       - --label=org.opencontainers.image.version={{ .Version }}
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
@@ -76,16 +76,16 @@ dockers:
   - id: arm64
     use: buildx
     image_templates:
-      - ghcr.io/kakkoyun/{{ .ProjectName }}:{{ .Version }}-arm64v8
-      - ghcr.io/kakkoyun/{{ .ProjectName }}:latest-arm64v8
+      - ghcr.io/polarsignals/{{ .ProjectName }}:{{ .Version }}-arm64v8
+      - ghcr.io/polarsignals/{{ .ProjectName }}:latest-arm64v8
     goarch: arm64
     dockerfile: Dockerfile.release
     build_flag_templates:
       - --platform=linux/arm64/v8
       - --label=org.opencontainers.image.title={{ .ProjectName }}
       - --label=org.opencontainers.image.description={{ .ProjectName }}
-      - --label=org.opencontainers.image.url=https://github.com/kakkoyun/{{ .ProjectName }}
-      - --label=org.opencontainers.image.source=https://github.com/kakkoyun/{{ .ProjectName }}
+      - --label=org.opencontainers.image.url=https://github.com/polarsignals/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/polarsignals/{{ .ProjectName }}
       - --label=org.opencontainers.image.version={{ .Version }}
       - --label=org.opencontainers.image.created={{.CommitDate}}
       - --label=org.opencontainers.image.revision={{ .FullCommit }}

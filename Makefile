@@ -1,5 +1,5 @@
 VERSION ?= $(shell git describe --exact-match --tags $$(git log -n1 --pretty='%h') 2>/dev/null || echo "$$(git rev-parse --abbrev-ref HEAD)-$$(git rev-parse --short HEAD)")
-CONTAINER_IMAGE := ghcr.io/kakkoyun/split-debug:$(VERSION)
+CONTAINER_IMAGE := ghcr.io/polarsignals/split-debug:$(VERSION)
 
 LDFLAGS="-X main.version=$(VERSION)"
 

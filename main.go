@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kakkoyun/split-debug/pkg/elfutils"
-	"github.com/kakkoyun/split-debug/pkg/elfwriter"
-	"github.com/kakkoyun/split-debug/pkg/logger"
+	"github.com/polarsignals/split-debug/pkg/elfutils"
+	"github.com/polarsignals/split-debug/pkg/elfwriter"
+	"github.com/polarsignals/split-debug/pkg/logger"
 
 	"github.com/alecthomas/kong"
 	"github.com/go-kit/log/level"
