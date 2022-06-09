@@ -63,18 +63,11 @@ func run(path string) error {
 		return fmt.Errorf("failed to initialize writer: %w", err)
 	}
 
-	// TODO(kakkoyun): Remove executable code.
-	// for _, p := range elfFile.Progs {
-	// 	w.Progs = append(w.Progs, p)
-	// }
-	// w.Progs = append(w.Progs, elfFile.Progs...)
-
-	// for _, s := range elfFile.Sections {
-	// 	if isDwarf(s) || isSymbolTable(s) || isGoSymbolTable(s) {
-	// 		w.Sections = append(w.Sections, s)
-	// 	}
-	// }
-	w.Sections = append(w.Sections, elfFile.Sections...)
+	for _, s := range elfFile.Sections {
+		if isDwarf(s) || isSymbolTable(s) || isGoSymbolTable(s) {
+			w.Sections = append(w.Sections, s)
+		}
+	}
 
 	if err := w.Write(); err != nil {
 		return fmt.Errorf("failed to write: %w", err)

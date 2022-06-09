@@ -53,26 +53,25 @@ func TestWriter_Write(t *testing.T) {
 		Sections   []*elf.Section
 	}
 	tests := []struct {
-		name   string
-		fields fields
-		err    error
-		// TODO(kakkoyun): Add expectations!
+		name                     string
+		fields                   fields
+		err                      error
+		expectedNumberOfSections int
+		hasDWARF                 bool
 	}{
-		// {
-		// 	name: "only keep file header",
-		// 	fields: fields{
-		// 		FileHeader: &inElf.FileHeader,
-		// 	},
-		// 	err: nil,
-		// },
-		// {
-		// 	name: "only keep program header",
-		// 	fields: fields{
-		// 		FileHeader: &inElf.FileHeader,
-		// 		Progs:      inElf.Progs,
-		// 	},
-		// 	err: nil,
-		// },
+		{
+			name: "only keep file header",
+			fields: fields{
+				FileHeader: &inElf.FileHeader,
+			},
+		},
+		{
+			name: "only keep program header",
+			fields: fields{
+				FileHeader: &inElf.FileHeader,
+				Progs:      inElf.Progs,
+			},
+		},
 		{
 			name: "keep all sections and segments",
 			fields: fields{
@@ -80,24 +79,26 @@ func TestWriter_Write(t *testing.T) {
 				Progs:      inElf.Progs,
 				Sections:   inElf.Sections,
 			},
-			err: nil,
+			expectedNumberOfSections: len(inElf.Sections),
+			hasDWARF:                 true,
 		},
-		// {
-		// 	name: "keep all sections except debug information",
-		// 	fields: fields{
-		// 		FileHeader: &inElf.FileHeader,
-		// 		Sections:   secExceptDebug,
-		// 	},
-		// 	err: nil,
-		// },
-		// {
-		// 	name: "keep only debug information",
-		// 	fields: fields{
-		// 		FileHeader: &inElf.FileHeader,
-		// 		Sections:   secDebug,
-		// 	},
-		// 	err: nil,
-		// },
+		{
+			name: "keep all sections except debug information",
+			fields: fields{
+				FileHeader: &inElf.FileHeader,
+				Sections:   secExceptDebug,
+			},
+			expectedNumberOfSections: len(secExceptDebug),
+		},
+		{
+			name: "keep only debug information",
+			fields: fields{
+				FileHeader: &inElf.FileHeader,
+				Sections:   secDebug,
+			},
+			expectedNumberOfSections: len(secDebug) + 1, // shstrtab
+			hasDWARF:                 true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -109,6 +110,7 @@ func TestWriter_Write(t *testing.T) {
 
 			w, err := New(output, &inElf.FileHeader)
 			require.NoError(t, err)
+
 			w.Progs = append(w.Progs, tt.fields.Progs...)
 			w.Sections = append(w.Sections, tt.fields.Sections...)
 
@@ -123,9 +125,14 @@ func TestWriter_Write(t *testing.T) {
 			outElf, err := elfutils.Open(output.Name())
 			require.NoError(t, err)
 
-			t.Log(outElf.FileHeader)
-			t.Log(outElf.Progs)
-			t.Log(outElf.Sections)
+			require.Equal(t, len(tt.fields.Progs), len(outElf.Progs))
+			require.Equal(t, tt.expectedNumberOfSections, len(outElf.Sections))
+
+			if tt.hasDWARF {
+				data, err := outElf.DWARF()
+				require.NoError(t, err)
+				require.NotNil(t, data)
+			}
 
 			// oldshstrtab := inElf.Section(sectionHeaderStrTable)
 			// newshstrtab := outElf.Section(sectionHeaderStrTable)
@@ -147,10 +154,6 @@ func TestWriter_Write(t *testing.T) {
 			// newsplit := bytes.Split(newdata, []byte{0})
 			// require.Equal(t, oldsplit, newsplit)
 			// require.Equal(t, olddata, newdata)
-
-			// TODO(kakkoyun): Compare: readelf -h outputs.
-			// TODO(kakkoyun): Compare: readelf -SW outputs.
-			// TODO(kakkoyun): readelf -e (Equivalent to: -h -l -S)
 		})
 	}
 }

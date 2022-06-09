@@ -6,12 +6,13 @@
 //
 // This package does not provide completeness guarantees, only features needed to write core files are
 // implemented, notably missing:
-// - Consistency and soundness of relocations (type: SHT_RELA)
+// - Consistency and soundness of relocations
 // - Consistency of linked sections when target removed (sh_link)
 // - Consistency and existence of overlapping segments when a section removed (offset, range check)
 package elfwriter
 
 import (
+	"compress/zlib"
 	"debug/elf"
 	"encoding/binary"
 	"errors"
@@ -23,10 +24,6 @@ import (
 )
 
 // TODO(kakkoyun): Check if sections to segment mapping created properly.
-// TODO(kakkoyun): Handle compressed sections. Keep compressed section compressed.
-//  - fr := io.NewSectionReader(s.sr, s.compressionOffset, int64(s.FileSize)-s.compressionOffset)
-//  - zlib.NewReader(fr)
-//  - zlib.NewWriter
 const sectionHeaderStrTable = ".shstrtab"
 
 // WriteCloserSeeker is the union of io.Writer, io.Closer and io.Seeker.
@@ -41,11 +38,10 @@ type Writer struct {
 	w    WriteCloserSeeker
 	fhdr *elf.FileHeader
 
-	Err error
-
 	Progs    []*elf.Prog
 	Sections []*elf.Section
-	shStrIdx map[string]int
+
+	err error
 
 	seekProgHeader       int64 // position of phoff
 	seekProgNum          int64 // position of phnum
@@ -57,6 +53,11 @@ type Writer struct {
 	// For validation.
 	ehsize, phentsize, shentsize uint16
 	shnum, shoff, shstrndx       int64
+
+	shStrIdx map[string]int
+
+	// Options
+	debugCompressionEnabled bool
 }
 
 type Note struct {
@@ -66,7 +67,7 @@ type Note struct {
 }
 
 // New creates a new Writer.
-func New(w WriteCloserSeeker, fhdr *elf.FileHeader) (*Writer, error) {
+func New(w WriteCloserSeeker, fhdr *elf.FileHeader, opts ...Option) (*Writer, error) {
 	if fhdr.ByteOrder == nil {
 		return nil, errors.New("byte order has to be specified")
 	}
@@ -79,15 +80,21 @@ func New(w WriteCloserSeeker, fhdr *elf.FileHeader) (*Writer, error) {
 		return nil, errors.New("unknown ELF class")
 	}
 
-	// TODO(kakkoyun): Check if this is still unsupported.
+	// TODO(kakkoyun): Check why this was unsupported for delve.
 	// if fhdr.Data != elf.ELFDATA2LSB {
-	// 	panic("unsupported")
+	// 	return errors.New("unsupported")
 	// }
-	return &Writer{
-		w:        w,
-		fhdr:     fhdr,
-		shStrIdx: make(map[string]int),
-	}, nil
+
+	wrt := &Writer{
+		w:                       w,
+		fhdr:                    fhdr,
+		shStrIdx:                make(map[string]int),
+		debugCompressionEnabled: false,
+	}
+	for _, opt := range opts {
+		opt(wrt)
+	}
+	return wrt, nil
 }
 
 // Write writes the segments (program headers) and sections to output.
@@ -122,20 +129,20 @@ func (w *Writer) Write() error {
 	// 3. Sections
 	// 4. Section Header Table
 	w.writeFileHeader()
-	if w.Err != nil {
-		return fmt.Errorf("failed to write file header: %w", w.Err)
+	if w.err != nil {
+		return fmt.Errorf("failed to write file header: %w", w.err)
 	}
 	if len(w.Progs) > 0 {
 		w.writeSegments()
 	}
-	if w.Err != nil {
-		return fmt.Errorf("failed to write segments: %w", w.Err)
+	if w.err != nil {
+		return fmt.Errorf("failed to write segments: %w", w.err)
 	}
 	if len(w.Sections) > 0 {
 		w.writeSections()
 	}
-	if w.Err != nil {
-		return fmt.Errorf("failed to write sections: %w", w.Err)
+	if w.err != nil {
+		return fmt.Errorf("failed to write sections: %w", w.err)
 	}
 
 	if w.shoff == 0 && w.shnum != 0 {
@@ -226,7 +233,7 @@ func (w *Writer) writeFileHeader() {
 		w.phentsize = 56
 		w.shentsize = 64
 	default:
-		w.Err = errors.New("unknown ELF class")
+		w.err = errors.New("unknown ELF class")
 		return
 	}
 
@@ -262,7 +269,7 @@ func (w *Writer) writeFileHeader() {
 		w.u16(uint16(fhdr.Type))    // e_type
 		w.u16(uint16(fhdr.Machine)) // e_machine
 		w.u32(uint32(fhdr.Version)) // e_version
-		w.u32(0)                    // e_entry // TODO(kakkoyun): Shall we clone from input? Any consistency checks?
+		w.u32(0)                    // e_entry
 		w.seekProgHeader = w.here()
 		w.u32(0) // e_phoff
 		w.seekSectionHeader = w.here()
@@ -298,7 +305,7 @@ func (w *Writer) writeFileHeader() {
 		w.u16(uint16(fhdr.Type))    // e_type
 		w.u16(uint16(fhdr.Machine)) // e_machine
 		w.u32(uint32(fhdr.Version)) // e_version
-		w.u64(0)                    // e_entry // TODO(kakkoyun): Shall we clone from input? Any consistency checks?
+		w.u64(0)                    // e_entry
 		w.seekProgHeader = w.here()
 		w.u64(0) // e_phoff
 		w.seekSectionHeader = w.here()
@@ -318,7 +325,7 @@ func (w *Writer) writeFileHeader() {
 
 	// Sanity check, size of file header should be the same as ehsize
 	if sz, _ := w.w.Seek(0, io.SeekCurrent); sz != int64(w.ehsize) {
-		w.Err = errors.New("internal error, ELF header size")
+		w.err = errors.New("internal error, ELF header size")
 	}
 }
 
@@ -392,12 +399,10 @@ func (w *Writer) writeSegments() {
 		writeProgramHeader(prog)
 	}
 
-	// TODO(kakkoyun): Add program/segment data.
+	// TODO(kakkoyun): Add program/segment data? Next iterations.
 	// for _, prog := range w.Progs {
-	// 	// TODO(kakkoyun): Calculate using phentsize and update program header table.
 	// 	prog.Off = uint64(w.here())
 	// 	w.writeFrom(prog.Open())
-	// 	// TODO(kakkoyun): Calculate using phentsize and update program header table.
 	// 	prog.Filesz = uint64(w.here()) - prog.Off
 	// 	// Unless the section is not compressed, the Memsz and Filesz is the same.
 	// 	prog.Memsz = prog.Filesz
@@ -427,7 +432,7 @@ func (w *Writer) writeSections() {
 	// +---------> +-------------------+
 
 	// Shallow copy the section for further editing.
-	copy := func(s *elf.Section) *elf.Section {
+	copySection := func(s *elf.Section) *elf.Section {
 		clone := new(elf.Section)
 		*clone = *s
 		return clone
@@ -445,7 +450,7 @@ func (w *Writer) writeSections() {
 	for i, sec := range w.Sections {
 		if i == 0 {
 			if sec.Type == elf.SHT_NULL {
-				stw = append(stw, copy(sec))
+				stw = append(stw, copySection(sec))
 				continue
 			}
 			s := new(elf.Section)
@@ -458,7 +463,7 @@ func (w *Writer) writeSections() {
 			w.shstrndx = int64(len(stw) - 1)
 			continue
 		}
-		stw = append(stw, copy(sec))
+		stw = append(stw, copySection(sec))
 	}
 
 	shnum := len(stw)
@@ -478,8 +483,16 @@ func (w *Writer) writeSections() {
 		if i == int(w.shstrndx) {
 			w.writeStrtab(names)
 		} else {
-			// TODO(kakkoyun): Handle compression.
-			w.writeFrom(sec.Open())
+			if sec.Type == elf.SHT_NULL {
+				continue
+			}
+			// TODO(kakkoyun): Implement in next iterations.
+			// if w.debugCompressionEnabled {}
+			r := sec.Open()
+			if sec.Flags&elf.SHF_COMPRESSED != 0 {
+				w.writeCompressedFrom(r, w.compressionHeader(sec))
+			}
+			w.writeFrom(r)
 		}
 		sec.FileSize = uint64(w.here()) - sec.Offset
 		// Unless the section is not compressed, the Size and FileSize is the same.
@@ -583,8 +596,8 @@ func (w *Writer) Close() error {
 // here returns the current seek offset from the start of the file.
 func (w *Writer) here() int64 {
 	r, err := w.w.Seek(0, io.SeekCurrent)
-	if err != nil && w.Err == nil {
-		w.Err = err
+	if err != nil && w.err == nil {
+		w.err = err
 	}
 	return r
 }
@@ -592,8 +605,8 @@ func (w *Writer) here() int64 {
 // seek moves the cursor to the point calculated using offset and starting point.
 func (w *Writer) seek(offset int64, whence int) {
 	_, err := w.w.Seek(offset, whence)
-	if err != nil && w.Err == nil {
-		w.Err = err
+	if err != nil && w.err == nil {
+		w.err = err
 	}
 }
 
@@ -609,29 +622,29 @@ func (w *Writer) align(align int64) {
 
 func (w *Writer) write(buf []byte) {
 	_, err := w.w.Write(buf)
-	if err != nil && w.Err == nil {
-		w.Err = err
+	if err != nil && w.err == nil {
+		w.err = err
 	}
 }
 
 func (w *Writer) u16(n uint16) {
 	err := binary.Write(w.w, w.fhdr.ByteOrder, n)
-	if err != nil && w.Err == nil {
-		w.Err = err
+	if err != nil && w.err == nil {
+		w.err = err
 	}
 }
 
 func (w *Writer) u32(n uint32) {
 	err := binary.Write(w.w, w.fhdr.ByteOrder, n)
-	if err != nil && w.Err == nil {
-		w.Err = err
+	if err != nil && w.err == nil {
+		w.err = err
 	}
 }
 
 func (w *Writer) u64(n uint64) {
 	err := binary.Write(w.w, w.fhdr.ByteOrder, n)
-	if err != nil && w.Err == nil {
-		w.Err = err
+	if err != nil && w.err == nil {
+		w.err = err
 	}
 }
 
@@ -642,21 +655,22 @@ func (w *Writer) writeStrtab(strs []string) {
 	i := 1
 	for _, s := range strs {
 		if s != "" {
-			data, err := unix.ByteSliceFromString(s)
-			if err != nil && w.Err == nil {
-				w.Err = err
-				break
-			}
-			w.shStrIdx[s] = i
-			w.write(data)
-			i += len(data)
+			continue
 		}
+		data, err := unix.ByteSliceFromString(s)
+		if err != nil && w.err == nil {
+			w.err = err
+			break
+		}
+		w.shStrIdx[s] = i
+		w.write(data)
+		i += len(data)
 	}
 }
 
 func (w *Writer) writeFrom(r io.Reader) {
 	if r == nil {
-		w.Err = errors.New("reader is nil")
+		w.err = errors.New("reader is nil")
 		return
 	}
 
@@ -669,7 +683,7 @@ func (w *Writer) writeFrom(r io.Reader) {
 		defer func() {
 			if r := recover(); r != nil {
 				debug.PrintStack()
-				wErr = fmt.Errorf("panic occured: %w", r.(error))
+				wErr = fmt.Errorf("panic occurred: %w", r.(error))
 			}
 		}()
 		_, wErr = io.Copy(pw, r)
@@ -678,10 +692,82 @@ func (w *Writer) writeFrom(r io.Reader) {
 	// read from reader end of pipe.
 	defer pr.Close()
 	_, rErr := io.Copy(w.w, pr)
-	if wErr != nil && w.Err == nil {
-		w.Err = wErr
+	if wErr != nil && w.err == nil {
+		w.err = wErr
 	}
-	if rErr != nil && w.Err == nil {
-		w.Err = rErr
+	if rErr != nil && w.err == nil {
+		w.err = rErr
+	}
+}
+
+type compressionInfo struct {
+	compressionType   elf.CompressionType
+	compressionOffset int64
+}
+
+func (w *Writer) compressionHeader(s *elf.Section) *compressionInfo {
+	// Read the compression header.
+	var c *compressionInfo
+	switch w.fhdr.Class {
+	case elf.ELFCLASS32:
+		ch := new(elf.Chdr32)
+		if err := binary.Read(s.Open(), w.fhdr.ByteOrder, ch); err != nil {
+			w.err = err
+			return nil
+		}
+		c.compressionType = elf.CompressionType(ch.Type)
+		s.Size = uint64(ch.Size)
+		s.Addralign = uint64(ch.Addralign)
+		c.compressionOffset = int64(binary.Size(ch))
+	case elf.ELFCLASS64:
+		ch := new(elf.Chdr64)
+		if err := binary.Read(s.Open(), w.fhdr.ByteOrder, ch); err != nil {
+			w.err = err
+			return nil
+		}
+		c.compressionType = elf.CompressionType(ch.Type)
+		s.Size = ch.Size
+		s.Addralign = ch.Addralign
+		c.compressionOffset = int64(binary.Size(ch))
+	}
+	return c
+}
+
+func (w *Writer) writeCompressedFrom(r io.Reader, c *compressionInfo) {
+	if r == nil {
+		w.err = errors.New("reader is nil")
+		return
+	}
+	if c == nil {
+		return
+	}
+
+	if c.compressionType != elf.COMPRESS_ZLIB {
+		w.err = errors.New("unsupported compression type")
+	}
+
+	pr, pw := io.Pipe()
+
+	// write in writer end of pipe.
+	var wErr error
+	go func() {
+		defer pw.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				debug.PrintStack()
+				wErr = fmt.Errorf("panic occurred: %w", r.(error))
+			}
+		}()
+		_, wErr = io.Copy(pw, r)
+	}()
+
+	// read from reader end of pipe.
+	defer pr.Close()
+	_, rErr := io.Copy(zlib.NewWriter(w.w), pr)
+	if wErr != nil && w.err == nil {
+		w.err = wErr
+	}
+	if rErr != nil && w.err == nil {
+		w.err = rErr
 	}
 }
