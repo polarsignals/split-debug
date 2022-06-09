@@ -1,9 +1,4 @@
 linters-settings:
-  dupl:
-    threshold: 100
-  funlen:
-    lines: 180
-    statements: 80
   goconst:
     min-len: 2
     min-occurrences: 3
@@ -21,7 +16,7 @@ linters-settings:
       - whyNoLint
       - wrapperFunc
   gocyclo:
-    min-complexity: 18
+    min-complexity: 20
   goimports:
     local-prefixes: github.com/kakkoyun/split-debug
   gomnd:
@@ -70,7 +65,6 @@ linters:
     - dogsled
     - errcheck
     - exportloopref
-    - funlen
     - gochecknoinits
     - goconst
     - gocritic
