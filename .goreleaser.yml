@@ -41,7 +41,7 @@ release:
   footer: |
     ## Docker images
 
-    `docker pull ghcr.io/kakkoyun/split-debug:{{ .Tag }}`
+    `docker pull ghcr.io/kakkoyun/{{ .ProjectName }}:{{ .Tag }}`
 
     ## Thanks!
 
@@ -57,9 +57,10 @@ changelog:
 dockers:
   # https://goreleaser.com/customization/docker/
   - id: amd64
+    use: buildx
     image_templates:
-      - kakkoyun/{{ .ProjectName }}:{{ .Version }}-amd64
-      - kakkoyun/{{ .ProjectName }}:latest-amd64
+      - ghcr.io/kakkoyun/{{ .ProjectName }}:{{ .Version }}-amd64
+      - ghcr.io/kakkoyun/{{ .ProjectName }}:latest-amd64
     dockerfile: Dockerfile.release
     build_flag_templates:
       - --platform=linux/amd64
@@ -73,9 +74,10 @@ dockers:
       - --label=org.opencontainers.image.licenses=Apache-2.0
 
   - id: arm64
+    use: buildx
     image_templates:
-      - kakkoyun/{{ .ProjectName }}:{{ .Version }}-arm64v8
-      - kakkoyun/{{ .ProjectName }}:latest-arm64v8
+      - ghcr.io/kakkoyun/{{ .ProjectName }}:{{ .Version }}-arm64v8
+      - ghcr.io/kakkoyun/{{ .ProjectName }}:latest-arm64v8
     goarch: arm64
     dockerfile: Dockerfile.release
     build_flag_templates:
