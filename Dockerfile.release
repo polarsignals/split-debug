@@ -2,7 +2,7 @@ FROM golang:1.18.2-alpine3.16 as builder
 
 WORKDIR /app
 
-FROM alpine:3.16.0
+FROM alpine:3.16.1
 
 USER nobody
 
