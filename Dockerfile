@@ -16,7 +16,7 @@ COPY --chown=nobody:nogroup ./main.go ./main.go
 COPY --chown=nobody:nogroup ./pkg ./pkg
 RUN make build
 
-FROM alpine:3.16
+FROM alpine:3.16.2
 
 USER nobody
 
