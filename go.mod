@@ -6,7 +6,7 @@ require (
 	github.com/alecthomas/kong v0.5.0
 	github.com/go-kit/log v0.2.1
 	github.com/stretchr/testify v1.7.1
-	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a
+	golang.org/x/sys v0.6.0
 )
 
 require (
